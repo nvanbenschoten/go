@@ -437,8 +437,7 @@ type g struct {
 	timer          *timer         // cached timer for time.Sleep
 	selectDone     uint32         // are we participating in a select and did someone win the race?
 
-	causalprofdelay    uint64 // causal profiling delay
-	causalprofParkTime int64
+	causalprofdelay uint64 // causal profiling delay
 
 	// Per-G GC state
 
@@ -600,6 +599,8 @@ type p struct {
 	wbBuf wbBuf
 
 	runSafePointFn uint32 // if 1, run sched.safePointFn at next safe point
+
+	causalprofdelay uint64
 
 	pad cpu.CacheLinePad
 }
