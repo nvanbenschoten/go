@@ -172,7 +172,7 @@ func Trace(w http.ResponseWriter, r *http.Request) {
 
 // CausalProfile responds with the results of causal profiling experiments.
 // Profiling lasts for duration specified in seconds GET parameter, or for 60 seconds if not specified.
-// The package initialization registers it as /debug/pprof/trace.
+// The package initialization registers it as /debug/pprof/causalprof.
 func CausalProfile(w http.ResponseWriter, r *http.Request) {
 	sec, _ := strconv.ParseInt(r.FormValue("seconds"), 10, 64)
 	if sec == 0 {
