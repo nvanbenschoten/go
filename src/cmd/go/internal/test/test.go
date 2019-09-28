@@ -303,7 +303,11 @@ profile the tests during execution:
 	    The profiler aims to sample, on average, one blocking event every
 	    n nanoseconds the program spends blocked. By default,
 	    if -test.blockprofile is set without this flag, all blocking events
-	    are recorded, equivalent to -test.blockprofilerate=1.
+		are recorded, equivalent to -test.blockprofilerate=1.
+		
+	-causalprofile causal.out
+	    Write a causal profile to the specified file before exiting.
+	    Writes test binary as -c would.
 
 	-coverprofile cover.out
 	    Write a coverage profile to the file after all tests have passed.

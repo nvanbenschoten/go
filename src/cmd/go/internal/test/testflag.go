@@ -42,6 +42,7 @@ var testFlagDefn = []*cmdflag.Defn{
 	{Name: "benchtime", PassToTest: true},
 	{Name: "blockprofile", PassToTest: true},
 	{Name: "blockprofilerate", PassToTest: true},
+	{Name: "causalprofile", PassToTest: true},
 	{Name: "count", PassToTest: true},
 	{Name: "coverprofile", PassToTest: true},
 	{Name: "cpu", PassToTest: true},
@@ -157,7 +158,7 @@ func testFlags(usage func(), args []string) (packageNames, passToTest []string) 
 				testList = true
 			case "timeout":
 				testTimeout = value
-			case "blockprofile", "cpuprofile", "memprofile", "mutexprofile":
+			case "blockprofile", "causalprofile", "cpuprofile", "memprofile", "mutexprofile":
 				testProfile = "-" + f.Name
 				testNeedBinary = true
 			case "trace":

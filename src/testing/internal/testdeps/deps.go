@@ -15,6 +15,7 @@ import (
 	"internal/testlog"
 	"io"
 	"regexp"
+	"runtime/causalprof"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -44,6 +45,14 @@ func (TestDeps) StartCPUProfile(w io.Writer) error {
 
 func (TestDeps) StopCPUProfile() {
 	pprof.StopCPUProfile()
+}
+
+func (TestDeps) StartCausalProfile(w io.Writer) error {
+	return causalprof.Start(w)
+}
+
+func (TestDeps) StopCausalProfile() {
+	causalprof.Stop()
 }
 
 func (TestDeps) WriteProfileTo(name string, w io.Writer, debug int) error {

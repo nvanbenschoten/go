@@ -285,6 +285,7 @@ func Init() {
 	memProfile = flag.String("test.memprofile", "", "write an allocation profile to `file`")
 	memProfileRate = flag.Int("test.memprofilerate", 0, "set memory allocation profiling `rate` (see runtime.MemProfileRate)")
 	cpuProfile = flag.String("test.cpuprofile", "", "write a cpu profile to `file`")
+	causalProfile = flag.String("test.causalprofile", "", "write a causal profile to `file`")
 	blockProfile = flag.String("test.blockprofile", "", "write a goroutine blocking profile to `file`")
 	blockProfileRate = flag.Int("test.blockprofilerate", 1, "set blocking profile `rate` (see runtime.SetBlockProfileRate)")
 	mutexProfile = flag.String("test.mutexprofile", "", "write a mutex contention profile to the named file after execution")
@@ -311,6 +312,7 @@ var (
 	memProfile           *string
 	memProfileRate       *int
 	cpuProfile           *string
+	causalProfile        *string
 	blockProfile         *string
 	blockProfileRate     *int
 	mutexProfile         *string
@@ -1029,6 +1031,8 @@ type matchStringOnly func(pat, str string) (bool, error)
 func (f matchStringOnly) MatchString(pat, str string) (bool, error)   { return f(pat, str) }
 func (f matchStringOnly) StartCPUProfile(w io.Writer) error           { return errMain }
 func (f matchStringOnly) StopCPUProfile()                             {}
+func (f matchStringOnly) StartCausalProfile(w io.Writer) error        { return errMain }
+func (f matchStringOnly) StopCausalProfile()                          {}
 func (f matchStringOnly) WriteProfileTo(string, io.Writer, int) error { return errMain }
 func (f matchStringOnly) ImportPath() string                          { return "" }
 func (f matchStringOnly) StartTestLog(io.Writer)                      {}
@@ -1066,6 +1070,8 @@ type testDeps interface {
 	MatchString(pat, str string) (bool, error)
 	StartCPUProfile(io.Writer) error
 	StopCPUProfile()
+	StartCausalProfile(io.Writer) error
+	StopCausalProfile()
 	StartTestLog(io.Writer)
 	StopTestLog() error
 	WriteProfileTo(string, io.Writer, int) error
@@ -1231,6 +1237,19 @@ func (m *M) before() {
 		}
 		// Could save f so after can call f.Close; not worth the effort.
 	}
+	if *causalProfile != "" {
+		f, err := os.Create(toOutputDir(*causalProfile))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testing: %s\n", err)
+			return
+		}
+		if err := m.deps.StartCausalProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "testing: can't start causal profile: %s\n", err)
+			f.Close()
+			return
+		}
+		// Could save f so after can call f.Close; not worth the effort.
+	}
 	if *traceFile != "" {
 		f, err := os.Create(toOutputDir(*traceFile))
 		if err != nil {
@@ -1296,6 +1315,9 @@ func (m *M) writeProfiles() {
 	}
 	if *cpuProfile != "" {
 		m.deps.StopCPUProfile() // flushes profile to disk
+	}
+	if *causalProfile != "" {
+		m.deps.StopCausalProfile() // flushes profile to disk
 	}
 	if *traceFile != "" {
 		trace.Stop() // flushes trace to disk
