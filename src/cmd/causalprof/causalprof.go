@@ -33,8 +33,21 @@ func main() {
 		index[s.pc] = i
 	}
 	// sort each callsite by slowdown
-	for _, s := range index {
-		sort.Sort(bySpeedup(s))
+	for _, i := range index {
+		sort.Sort(bySpeedup(i))
+	}
+	// merge each duplicate (callsite, slowdown)
+	for pc, i := range index {
+		merged := []*sample{i[0]}
+		for _, s := range i[1:] {
+			last := merged[len(merged)-1]
+			if last.speedup == s.speedup {
+				last.merge(s)
+			} else {
+				merged = append(merged, s)
+			}
+		}
+		index[pc] = merged
 	}
 	// get a symbol table to turn addresses into file:line
 	obj, err := objfile.Open(args[1])
@@ -45,11 +58,13 @@ func main() {
 	if err != nil {
 		fatalln(err.Error())
 	}
+	haveData := false
 	for pc, i := range index {
 		// not enough baseline data
 		if i[0].speedup != 0 || len(i) < 5 {
 			continue
 		}
+		haveData = true
 		file, line, fn := pcln.PCToLine(pc - 1)
 		if fn == nil {
 			fmt.Printf("%#x\n", pc)
@@ -66,15 +81,28 @@ func main() {
 		}
 		fmt.Println()
 	}
-
+	if !haveData {
+		fmt.Println("not enough data")
+	}
 }
 
 type sample struct {
 	pc           uint64
 	speedup      int
+	merged       int64
 	nsPerOp      int64
 	delaysamples int64
 	allsamples   int64
+}
+
+func (s *sample) merge(o *sample) {
+	if s.pc != o.pc || s.speedup != o.speedup {
+		panic("different pcs or speedups")
+	}
+	s.nsPerOp = ((s.nsPerOp * s.merged) + (o.nsPerOp * o.merged)) / (s.merged + o.merged)
+	s.merged += o.merged
+	s.delaysamples += o.delaysamples
+	s.allsamples += o.allsamples
 }
 
 type bySpeedup []*sample
@@ -98,7 +126,7 @@ func readProfFile(path string) ([]*sample, error) {
 		}
 		fields := strings.Fields(s)
 		if len(fields) != 5 {
-			return nil, fmt.Errorf("corrupt causalprof file, had ", len(fields), "fields; expected 3")
+			return nil, fmt.Errorf("corrupt causalprof file, had %d fields; expected 3", len(fields))
 		}
 		pc, err := strconv.ParseUint(fields[0], 0, 64)
 		if err != nil {
@@ -123,6 +151,7 @@ func readProfFile(path string) ([]*sample, error) {
 		samples = append(samples, &sample{
 			pc:           pc,
 			speedup:      speedup,
+			merged:       1,
 			nsPerOp:      nsPerOp,
 			delaysamples: delaysamples,
 			allsamples:   allsamples,

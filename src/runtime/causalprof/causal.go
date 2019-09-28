@@ -47,6 +47,7 @@ func Start(w io.Writer) error {
 
 const profilingHz = 1000
 const delayPerPercent = 1e7 / profilingHz
+const maxTrialsPerExperiment = 10
 
 // Stop stops causal profiling if enabled.
 // Stop interrupts any currently running experiment without printing
@@ -65,6 +66,7 @@ func Stop() {
 }
 
 type experiment struct {
+	trials    int
 	hasNull   bool
 	remaining []int
 }
@@ -79,9 +81,7 @@ func profileWriter(w io.Writer) {
 		}
 		expinfo, ok := experiments[pc]
 		if !ok {
-			expinfo = &experiment{
-				remaining: rand.Perm(20),
-			}
+			expinfo = new(experiment)
 			experiments[pc] = expinfo
 		}
 		exp := selectExperiment(expinfo)
@@ -118,16 +118,16 @@ func profileWriter(w io.Writer) {
 }
 
 func selectExperiment(expinfo *experiment) int {
-	if !expinfo.hasNull && rand.Intn(2) == 1 {
+	if expinfo.hasNull && len(expinfo.remaining) == 0 {
+		if expinfo.trials == maxTrialsPerExperiment {
+			return -1
+		}
+		expinfo.trials++
+		expinfo.remaining = rand.Perm(20)
+	}
+	if !expinfo.hasNull && (len(expinfo.remaining) == 0 || rand.Intn(2) == 1) {
 		expinfo.hasNull = true
 		return 0
-	}
-	if len(expinfo.remaining) == 0 {
-		if !expinfo.hasNull {
-			expinfo.hasNull = true
-			return 0
-		}
-		return -1
 	}
 	exp := expinfo.remaining[0] + 1
 	expinfo.remaining = expinfo.remaining[1:]
