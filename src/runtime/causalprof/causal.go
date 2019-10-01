@@ -46,8 +46,11 @@ func Start(w io.Writer) error {
 }
 
 const profilingHz = 1000
-const delayPerPercent = 1e7 / profilingHz
-const maxTrialsPerExperiment = 10
+const profilingPeriod = 1e9 * 1 / profilingHz
+const delayPerPercent = profilingPeriod / 100
+const percentileResolution = 10
+const progressPerExperiment = 100
+const maxTrialsPerExperiment = 5
 
 // Stop stops causal profiling if enabled.
 // Stop interrupts any currently running experiment without printing
@@ -73,6 +76,7 @@ type experiment struct {
 
 func profileWriter(w io.Writer) {
 	experiments := make(map[uintptr]*experiment)
+	profMultiple := time.Duration(200)
 	for {
 		pc := runtime_causalProfileStart()
 		if pc == 0 {
@@ -89,19 +93,18 @@ func profileWriter(w io.Writer) {
 			runtime_causalProfileInstall(0)
 			continue
 		}
-		delaypersample := uint64(exp) * (5 * delayPerPercent)
+		delaypersample := uint64(exp) * (percentileResolution * delayPerPercent)
 
 		resetProgress()
 		runtime_causalProfileInstall(delaypersample)
-		// TODO (dmo): variable sleep
 		select {
-		case <-time.After(1000 * (time.Second / profilingHz)):
+		case <-time.After(profMultiple * (time.Second / profilingHz)):
 		case <-cpu.done:
 			runtime_causalProfileInstall(0)
 			return
 		}
 		runtime_causalProfileInstall(0)
-		diff := compareprogress()
+		diff, cnt := compareprogress()
 		if diff == -1 {
 			continue
 		}
@@ -110,10 +113,20 @@ func profileWriter(w io.Writer) {
 		file, line := _func.FileLine(pc)
 		fmt.Fprintf(w, "# %s %s:%d\n", _func.Name(), file, line)
 		fmt.Fprintf(w, "# speedup %d%%\n", delaypersample/delayPerPercent)
+		fmt.Fprintf(w, "# count %d\n", cnt)
 		fmt.Fprintf(w, "# %dns/op\n", diff)
 		fmt.Fprintf(w, "%#x %d %d %d %d\n", pc, delaypersample/delayPerPercent, diff, samples, allsamples)
 		// allow system state to return to normal
-		time.Sleep(1000 * (time.Second / profilingHz))
+		if progressPerExperiment > cnt {
+			if progressPerExperiment > 2*cnt {
+				profMultiple *= 2
+			}
+		} else {
+			if progressPerExperiment < cnt/2 {
+				profMultiple /= 2
+			}
+		}
+		time.Sleep(profMultiple / 5 * (time.Second / profilingHz))
 	}
 }
 
@@ -123,7 +136,7 @@ func selectExperiment(expinfo *experiment) int {
 			return -1
 		}
 		expinfo.trials++
-		expinfo.remaining = rand.Perm(20)
+		expinfo.remaining = rand.Perm(100 / percentileResolution)
 	}
 	if !expinfo.hasNull && (len(expinfo.remaining) == 0 || rand.Intn(2) == 1) {
 		expinfo.hasNull = true
@@ -187,15 +200,16 @@ func (p *Progress) Stop() {
 	progress += 1
 }
 
-func compareprogress() int {
+func compareprogress() (int, int) {
 	progressmu.Lock()
 	defer progressmu.Unlock()
 	if progress == 0 {
-		return -1
+		return -1, 0
 	}
-	prog := int(int64(progresstime) / int64(progress))
+	cnt := progress
+	prog := int(int64(progresstime) / int64(cnt))
 	progress = 0
 	progresstime = 0
 	atomic.AddUint64(&experimentNum, 1)
-	return prog
+	return prog, cnt
 }

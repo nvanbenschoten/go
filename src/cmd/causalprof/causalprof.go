@@ -24,6 +24,15 @@ func main() {
 	if err != nil {
 		fatalln(err.Error())
 	}
+	// get a symbol table to turn addresses into file:line
+	obj, err := objfile.Open(args[1])
+	if err != nil {
+		fatalln(err.Error())
+	}
+	pcln, err := obj.PCLineTable()
+	if err != nil {
+		fatalln(err.Error())
+	}
 
 	// make an index of experiments concerning the same callsite
 	index := make(map[uint64][]*sample)
@@ -31,6 +40,15 @@ func main() {
 		i := index[s.pc]
 		i = append(i, s)
 		index[s.pc] = i
+	}
+	// throw away any callsite with an insufficient sample count
+	for pc, i := range index {
+		if len(i) < 20 {
+			delete(index, pc)
+		}
+	}
+	if len(index) == 0 {
+		fmt.Println("not enough data")
 	}
 	// sort each callsite by slowdown
 	for _, i := range index {
@@ -49,40 +67,32 @@ func main() {
 		}
 		index[pc] = merged
 	}
-	// get a symbol table to turn addresses into file:line
-	obj, err := objfile.Open(args[1])
-	if err != nil {
-		fatalln(err.Error())
-	}
-	pcln, err := obj.PCLineTable()
-	if err != nil {
-		fatalln(err.Error())
-	}
-	haveData := false
+	// accumulate a single authoritative null experiment
+	var nullexp sample
 	for pc, i := range index {
-		// not enough baseline data
-		if i[0].speedup != 0 || len(i) < 5 {
-			continue
+		if i[0].speedup == 0 {
+			nullexp.merge(i[0])
+			index[pc] = i[1:]
 		}
-		haveData = true
+	}
+	for pc, i := range index {
 		file, line, fn := pcln.PCToLine(pc - 1)
 		if fn == nil {
 			fmt.Printf("%#x\n", pc)
 		} else {
 			fmt.Printf("%#x %s:%d\n", pc, file, line)
 		}
-		nullexp := i[0]
-		fmt.Printf("%3d%%\t%dns\n", nullexp.speedup, nullexp.nsPerOp)
-		for _, s := range i[1:] {
-			percent := float64(s.nsPerOp-nullexp.nsPerOp) / float64(nullexp.nsPerOp)
+		fmt.Printf("%3d%%\t%dns\n", nullexp.speedup, nullexp.nsPerOp())
+		for _, s := range i {
+			if s.speedup == 0 {
+				panic("unexpected")
+			}
+			percent := float64(s.nsPerOp()-nullexp.nsPerOp()) / float64(nullexp.nsPerOp())
 			percent *= 100
 			percentsamples := (float64(s.speedup)) * (float64(s.delaysamples) / float64(s.allsamples))
-			fmt.Printf("%3d%%\t%dns\t%+.3g%%\t%.3g%%\n", s.speedup, s.nsPerOp, percent, percentsamples)
+			fmt.Printf("%3d%%\t%dns\t%+.3g%%\t%.3g%%\n", s.speedup, s.nsPerOp(), percent, percentsamples)
 		}
 		fmt.Println()
-	}
-	if !haveData {
-		fmt.Println("not enough data")
 	}
 }
 
@@ -90,19 +100,23 @@ type sample struct {
 	pc           uint64
 	speedup      int
 	merged       int64
-	nsPerOp      int64
+	nsPerOpAgg   int64
 	delaysamples int64
 	allsamples   int64
 }
 
 func (s *sample) merge(o *sample) {
-	if s.pc != o.pc || s.speedup != o.speedup {
-		panic("different pcs or speedups")
-	}
-	s.nsPerOp = ((s.nsPerOp * s.merged) + (o.nsPerOp * o.merged)) / (s.merged + o.merged)
+	// if s.pc != o.pc || s.speedup != o.speedup {
+	// 	panic("different pcs or speedups")
+	// }
+	s.nsPerOpAgg += o.nsPerOpAgg
 	s.merged += o.merged
 	s.delaysamples += o.delaysamples
 	s.allsamples += o.allsamples
+}
+
+func (s *sample) nsPerOp() int64 {
+	return s.nsPerOpAgg / s.merged
 }
 
 type bySpeedup []*sample
@@ -151,8 +165,8 @@ func readProfFile(path string) ([]*sample, error) {
 		samples = append(samples, &sample{
 			pc:           pc,
 			speedup:      speedup,
+			nsPerOpAgg:   nsPerOp,
 			merged:       1,
-			nsPerOp:      nsPerOp,
 			delaysamples: delaysamples,
 			allsamples:   allsamples,
 		})
